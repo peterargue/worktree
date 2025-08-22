@@ -1,0 +1,166 @@
+WORKTREE_DEV_DIR="$HOME/dev"
+EDITOR_CMD="cursor"
+
+# Add a new worktree
+wt-add() {
+    if [[ -z "$1" ]]; then
+        echo "Usage: wt-add <branch-name>"
+        return 1
+    fi
+
+    local branch_name="$1"
+    
+    # Check if we're in a git repo
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
+        return 1
+    fi
+
+    # Get repo info
+    local repo_root=$(git rev-parse --show-toplevel)
+    local remote_url=$(git config --get remote.origin.url)
+    
+    # Extract org and repo name from remote URL
+    local org_repo
+    if [[ $remote_url =~ git@github\.com:(.+)\.git$ ]] || [[ $remote_url =~ https://github\.com/(.+)\.git$ ]]; then
+        org_repo="$match[1]"
+    elif [[ $remote_url =~ git@github\.com:(.+)$ ]] || [[ $remote_url =~ https://github\.com/(.+)$ ]]; then
+        org_repo="$match[1]"
+    else
+        # Fallback: use the repo directory name
+        org_repo="unknown/$(basename "$repo_root")"
+    fi
+    
+    local worktree_dir="$WORKTREE_DEV_DIR/${org_repo}-worktrees/${branch_name}"
+    
+    # Create the worktrees directory if it doesn't exist
+    mkdir -p "$(dirname "$worktree_dir")"
+    
+    # Check if branch exists locally
+    if git show-ref --verify --quiet refs/heads/"$branch_name"; then
+        echo "Branch '$branch_name' exists locally. Creating worktree..."
+        git worktree add "$worktree_dir" "$branch_name"
+    # Check if branch exists on remote
+    elif git show-ref --verify --quiet refs/remotes/origin/"$branch_name"; then
+        echo "Branch '$branch_name' exists on remote. Creating worktree and tracking branch..."
+        git worktree add "$worktree_dir" -b "$branch_name" origin/"$branch_name"
+    else
+        # Get the default branch
+        local default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+        if [[ -z "$default_branch" ]]; then
+            # Fallback: try common default branch names
+            for branch in main master; do
+                if git show-ref --verify --quiet refs/remotes/origin/"$branch"; then
+                    default_branch="$branch"
+                    break
+                fi
+            done
+        fi
+        
+        if [[ -z "$default_branch" ]]; then
+            echo "Error: Could not determine default branch"
+            return 1
+        fi
+        
+        echo "Creating new branch '$branch_name' from '$default_branch'..."
+        git worktree add "$worktree_dir" -b "$branch_name" origin/"$default_branch"
+    fi
+    
+    if [[ $? -eq 0 ]]; then
+        echo "Worktree created at: $worktree_dir"
+        ${EDITOR_CMD} "$worktree_dir"
+    else
+        echo "Failed to create worktree"
+        return 1
+    fi
+}
+
+# Remove a worktree
+wt-rm() {
+    if [[ -z "$1" ]]; then
+        echo "Usage: wt-rm <branch-name>"
+        return 1
+    fi
+
+    local branch_name="$1"
+    
+    # Check if we're in a git repo
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
+        return 1
+    fi
+
+    # Get repo info
+    local repo_root=$(git rev-parse --show-toplevel)
+    local remote_url=$(git config --get remote.origin.url)
+    
+    # Extract org and repo name from remote URL
+    local org_repo
+    if [[ $remote_url =~ git@github\.com:(.+)\.git$ ]] || [[ $remote_url =~ https://github\.com/(.+)\.git$ ]]; then
+        org_repo="$match[1]"
+    elif [[ $remote_url =~ git@github\.com:(.+)$ ]] || [[ $remote_url =~ https://github\.com/(.+)$ ]]; then
+        org_repo="$match[1]"
+    else
+        # Fallback: use the repo directory name
+        org_repo="unknown/$(basename "$repo_root")"
+    fi
+    
+    local worktree_dir="$WORKTREE_DEV_DIR/${org_repo}-worktrees/${branch_name}"
+    
+    # Check if worktree exists
+    if [[ ! -d "$worktree_dir" ]]; then
+        echo "Worktree directory not found: $worktree_dir"
+        
+        # Try to find it in the git worktree list
+        local existing_path=$(git worktree list --porcelain | grep -A1 "branch refs/heads/$branch_name" | grep "worktree" | cut -d' ' -f2)
+        if [[ -n "$existing_path" ]]; then
+            echo "Found worktree at: $existing_path"
+            worktree_dir="$existing_path"
+        else
+            echo "No worktree found for branch '$branch_name'"
+            return 1
+        fi
+    fi
+    
+    echo "Removing worktree: $worktree_dir"
+    git worktree remove "$worktree_dir"
+    
+    if [[ $? -eq 0 ]]; then
+        echo "Worktree removed successfully"
+        
+        # Ask if user wants to delete the branch
+        echo -n "Delete branch '$branch_name'? [y/N]: "
+        read -r response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            git branch -d "$branch_name" 2>/dev/null || git branch -D "$branch_name"
+            echo "Branch '$branch_name' deleted"
+        fi
+    else
+        echo "Failed to remove worktree"
+        return 1
+    fi
+}
+
+wt-list() {
+    echo "Current worktrees:"
+    # Find the main worktree (first one in the list, which is always the main repo)
+    local main_worktree=$(git worktree list --porcelain | head -1 | sed 's/^worktree //')
+    git worktree list --porcelain | awk -v main_path="$main_worktree" '
+    /^worktree / { path = substr($0, 10) }
+    /^branch / { branch = substr($0, 8); gsub(/^refs\/heads\//, "", branch) }
+    /^$/ { 
+        if (path && branch && path != main_path) {
+            printf "  %-30s %s\n", branch, path
+        } else if (path && !branch && path != main_path) {
+            printf "  %-30s %s\n", "(bare)", path
+        }
+        path = ""; branch = ""
+    }
+    END {
+        if (path && branch && path != main_path) {
+            printf "  %-30s %s\n", branch, path
+        } else if (path && !branch && path != main_path) {
+            printf "  %-30s %s\n", "(bare)", path
+        }
+    }'
+}
