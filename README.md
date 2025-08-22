@@ -44,9 +44,29 @@ wt-add feature-branch
 
 The `wt-add` command will:
 - Check if the branch exists locally or remotely
-- Create the worktree in `{WORKTREE_DEV_DIR}/{org-repo}-worktrees/{branch-name}`
+- Create the worktree in `{WORKTREE_DEV_DIR}/{org}/{repo}-worktrees/{branch-name}`
 - Handle branch creation from the default branch if needed
 - Automatically open the new worktree in your configured editor
+
+**Creating worktrees from specific branches, tags, or commits**:
+
+For more control over the base of your new branch, the recommended approach is to first create the branch locally from your desired base, then create the worktree:
+
+```bash
+# Create a branch from a specific branch
+git checkout -b sub-feature-a feature-branch
+
+# Create a branch from a specific tag
+git checkout -b release-branch v1.2.0
+
+# Create a branch from a specific commit
+git checkout -b hotfix-branch abc1234
+
+# Then create the worktree from the existing local branch
+wt-add sub-feature-a
+```
+
+This approach gives you full control over the branch's base while still leveraging the worktree organization features.
 
 ### Listing Worktrees
 
@@ -82,7 +102,6 @@ WORKTREE_DEV_DIR="$HOME/dev"  # Default location
 You can change this to any directory you prefer:
 ```bash
 WORKTREE_DEV_DIR="$HOME/projects"  # Alternative location
-WORKTREE_DEV_DIR="/opt/development"  # System-wide location
 ```
 
 ### Editor Configuration
@@ -107,13 +126,18 @@ Worktrees are organized by repository under the configured base directory:
 
 ```
 $WORKTREE_DEV_DIR/
-├── organization-repo-worktrees/
-│   ├── feature-branch/
-│   ├── bugfix-123/
-│   └── hotfix-release/
-└── another-org-repo-worktrees/
-    ├── main-feature/
-    └── experimental/
+├── organization/
+│   ├── repo-worktrees/
+│   │   ├── feature-branch/
+│   │   ├── bugfix-123/
+│   │   └── hotfix-release/
+│   └── another-repo-worktrees/
+│       ├── main-feature/
+│       └── experimental/
+└── another-org/
+    └── some-repo-worktrees/
+        ├── develop/
+        └── release-candidate/
 ```
 
 ## Requirements
