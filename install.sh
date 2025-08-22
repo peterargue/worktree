@@ -14,4 +14,7 @@ if grep -q "${ALIASES}" "${RC_FILE}"; then
     exit 0
 fi
 
+echo "" >> ${RC_FILE}
+echo "# Enable worktree aliases" >> ${RC_FILE}
 echo "[ -f ${ALIASES} ] && source ${ALIASES}" >> ${RC_FILE}
+echo "Aliases installed in ${RC_FILE}"
