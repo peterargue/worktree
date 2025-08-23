@@ -15,21 +15,9 @@ wt-add() {
         echo "Error: Not in a git repository"
         return 1
     fi
-
-    # Get repo info
-    local repo_root=$(git rev-parse --show-toplevel)
-    local remote_url=$(git config --get remote.origin.url)
     
     # Extract org and repo name from remote URL
-    local org_repo
-    if [[ $remote_url =~ git@github\.com:(.+)\.git$ ]] || [[ $remote_url =~ https://github\.com/(.+)\.git$ ]]; then
-        org_repo="$match[1]"
-    elif [[ $remote_url =~ git@github\.com:(.+)$ ]] || [[ $remote_url =~ https://github\.com/(.+)$ ]]; then
-        org_repo="$match[1]"
-    else
-        # Fallback: use the repo directory name
-        org_repo="unknown/$(basename "$repo_root")"
-    fi
+    local org_repo=$(get_org_repo)
     
     local worktree_dir="$WORKTREE_DEV_DIR/${org_repo}-worktrees/${branch_name}"
     
@@ -90,20 +78,8 @@ wt-rm() {
         return 1
     fi
 
-    # Get repo info
-    local repo_root=$(git rev-parse --show-toplevel)
-    local remote_url=$(git config --get remote.origin.url)
-    
     # Extract org and repo name from remote URL
-    local org_repo
-    if [[ $remote_url =~ git@github\.com:(.+)\.git$ ]] || [[ $remote_url =~ https://github\.com/(.+)\.git$ ]]; then
-        org_repo="$match[1]"
-    elif [[ $remote_url =~ git@github\.com:(.+)$ ]] || [[ $remote_url =~ https://github\.com/(.+)$ ]]; then
-        org_repo="$match[1]"
-    else
-        # Fallback: use the repo directory name
-        org_repo="unknown/$(basename "$repo_root")"
-    fi
+    local org_repo=$(get_org_repo)
     
     local worktree_dir="$WORKTREE_DEV_DIR/${org_repo}-worktrees/${branch_name}"
     
@@ -163,4 +139,20 @@ wt-list() {
             printf "  %-30s %s\n", "(bare)", path
         }
     }'
+}
+
+# Extract org and repo name from remote URL
+get_org_repo() {
+    local remote_url=$(git config --get remote.origin.url)
+
+    local org_repo
+    if [[ $remote_url =~ git@github\.com:(.+)\.git$ ]] || [[ $remote_url =~ https://github\.com/(.+)\.git$ ]] || [[ $remote_url =~ github\.com:(.+)\.git$ ]] || [[ $remote_url =~ git@github\.com:(.+)$ ]] || [[ $remote_url =~ https://github\.com/(.+)$ ]] || [[ $remote_url =~ github\.com:(.+)$ ]]; then
+        org_repo="$match[1]"
+    else
+        # Fallback: use the repo directory name
+        local repo_root=$(git rev-parse --show-toplevel)
+        org_repo="unknown/$(basename "$repo_root")"
+    fi
+
+    echo "$org_repo"
 }
