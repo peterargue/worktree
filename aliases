@@ -11,8 +11,9 @@ worktree() {
         add)    _worktree_add "$@" ;;
         resume) _worktree_resume "$@" ;;
         remove) _worktree_remove "$@" ;;
+        root)   _worktree_root "$@" ;;
         *)
-            echo "Usage: worktree <list|add|resume|remove> [args]"
+            echo "Usage: worktree <list|add|resume|remove|root> [args]"
             echo ""
             echo "Commands:"
             echo "  list                List all worktrees"
@@ -21,9 +22,82 @@ worktree() {
             echo "  remove [--force] <branch>"
             echo "                      Remove a worktree. Use --force to remove"
             echo "                      even with uncommitted changes."
+            echo "  root                cd to the main repo root"
             return 1
             ;;
     esac
+}
+
+# Interactive arrow-key picker. Prints the 1-based index of the selected item.
+# Usage: selection=$(_worktree_picker [--initial N] "item1" "item2" ...)
+_worktree_picker() {
+    local initial=1
+    if [[ "$1" == "--initial" ]]; then
+        initial="$2"
+        shift 2
+    fi
+    local items=("$@")
+    local count=${#items[@]}
+    local cur=$initial
+    local key
+
+    # Hide cursor
+    printf '\e[?25l' >/dev/tty
+
+    # Draw initial list
+    local i=1
+    while [[ $i -le $count ]]; do
+        if [[ $i -eq $cur ]]; then
+            printf '\e[1;36m  > %s\e[0m\n' "${items[$i]}" >/dev/tty
+        else
+            printf '    %s\n' "${items[$i]}" >/dev/tty
+        fi
+        i=$((i + 1))
+    done
+
+    while true; do
+        # Read a single keypress (zsh uses -k, bash uses -n)
+        if [[ -n "$ZSH_VERSION" ]]; then
+            IFS= read -rsk1 key < /dev/tty
+        else
+            IFS= read -rsn1 key < /dev/tty
+        fi
+        if [[ "$key" == $'\x1b' ]]; then
+            if [[ -n "$ZSH_VERSION" ]]; then
+                IFS= read -rsk2 key < /dev/tty
+            else
+                IFS= read -rsn2 key < /dev/tty
+            fi
+            case "$key" in
+                '[A') [[ $cur -gt 1 ]] && cur=$((cur - 1)) ;;     # Up
+                '[B') [[ $cur -lt $count ]] && cur=$((cur + 1)) ;; # Down
+            esac
+        elif [[ "$key" == "" || "$key" == $'\n' ]]; then
+            # Enter pressed — show cursor and print result
+            printf '\e[?25h' >/dev/tty
+            echo "$cur"
+            return 0
+        elif [[ "$key" == "q" ]]; then
+            # Quit
+            printf '\e[?25h' >/dev/tty
+            return 1
+        fi
+
+        # Move cursor up to redraw
+        printf "\e[${count}A" >/dev/tty
+
+        # Redraw list
+        i=1
+        while [[ $i -le $count ]]; do
+            printf '\e[2K' >/dev/tty  # Clear line
+            if [[ $i -eq $cur ]]; then
+                printf '\e[1;36m  > %s\e[0m\n' "${items[$i]}" >/dev/tty
+            else
+                printf '    %s\n' "${items[$i]}" >/dev/tty
+            fi
+            i=$((i + 1))
+        done
+    done
 }
 
 # Sanitize branch name for use as a directory name.
@@ -39,25 +113,26 @@ _worktree_list() {
     fi
 
     local main_worktree
-    main_worktree=$(git worktree list --porcelain | head -1 | sed 's/^worktree //')
+    main_worktree=$(_worktree_main_root)
+
+    local current_wt
+    current_wt=$(_worktree_current)
 
     echo "Current worktrees:"
-    git worktree list --porcelain | awk -v main_path="$main_worktree" '
+    git worktree list --porcelain | awk -v main_path="$main_worktree" -v current="$current_wt" '
     /^worktree / { path = substr($0, 10) }
     /^branch / { branch = substr($0, 8); gsub(/^refs\/heads\//, "", branch) }
-    /^$/ {
-        if (path && branch && path != main_path) {
-            printf "  %-30s %s\n", branch, path
-        } else if (path && !branch && path != main_path) {
-            printf "  %-30s %s\n", "(detached)", path
-        }
-        path = ""; branch = ""
-    }
-    END {
-        if (path && branch && path != main_path) {
-            printf "  %-30s %s\n", branch, path
-        } else if (path && !branch && path != main_path) {
-            printf "  %-30s %s\n", "(detached)", path
+    /^$/ { print_entry(); path = ""; branch = "" }
+    END { print_entry() }
+    function print_entry() {
+        if (!path || path == main_path) return
+        label = branch ? branch : "(detached)"
+        n = split(path, parts, "/")
+        dirname = parts[n]
+        if (current != "" && dirname == current) {
+            printf "  \033[1;36m* %-30s %s\033[0m\n", label, path
+        } else {
+            printf "    %-30s %s\n", label, path
         }
     }'
 }
@@ -78,7 +153,7 @@ _worktree_add() {
     fi
 
     local repo_root
-    repo_root=$(git rev-parse --show-toplevel)
+    repo_root=$(_worktree_main_root)
     local worktree_dir="${repo_root}/.worktrees/${dir_name}"
 
     # If worktree already exists, just cd into it
@@ -145,7 +220,7 @@ _worktree_resume() {
     fi
 
     local repo_root
-    repo_root=$(git rev-parse --show-toplevel)
+    repo_root=$(_worktree_main_root)
     local worktrees_dir="${repo_root}/.worktrees"
 
     if [[ ! -d "$worktrees_dir" ]] || [[ -z "$(ls -A "$worktrees_dir" 2>/dev/null)" ]]; then
@@ -155,6 +230,11 @@ _worktree_resume() {
 
     # If a branch name is provided, cd directly into it
     if [[ -n "$1" ]]; then
+        if [[ "$1" == "[root]" ]]; then
+            cd "$repo_root" || return 1
+            return 0
+        fi
+
         local dir_name
         dir_name=$(_worktree_sanitize_dirname "$1")
         local worktree_dir="${worktrees_dir}/${dir_name}"
@@ -169,35 +249,55 @@ _worktree_resume() {
     fi
 
     # No branch specified — show a picker
-    local dirs=()
-    local branches=()
+    local dirs=("$repo_root")
+    local branches=("[root]")
     for dir in "$worktrees_dir"/*/; do
         [[ -d "$dir" ]] || continue
         dirs+=("$dir")
         branches+=("$(basename "$dir")")
     done
 
-    if [[ ${#branches[@]} -eq 0 ]]; then
+    if [[ ${#branches[@]} -le 1 ]]; then
         echo "No worktrees found"
         return 1
     fi
 
-    echo "Select a worktree:"
-    local i
-    for i in "${!branches[@]}"; do
-        echo "  $((i + 1))) ${branches[$i]}"
-    done
+    # Pre-select the current worktree if inside one
+    local initial=1
+    local current_wt
+    current_wt=$(_worktree_current)
+    if [[ -n "$current_wt" ]]; then
+        local idx=1
+        while [[ $idx -le ${#branches[@]} ]]; do
+            if [[ "${branches[$idx]}" == "$current_wt" ]]; then
+                initial=$idx
+                break
+            fi
+            idx=$((idx + 1))
+        done
+    fi
 
-    echo ""
-    echo -n "Enter number: "
-    read -r selection
+    local selection
+    selection=$(_worktree_picker --initial "$initial" "${branches[@]}")
+    [[ -z "$selection" ]] && return 1
 
-    if ! [[ "$selection" =~ ^[0-9]+$ ]] || [[ "$selection" -lt 1 ]] || [[ "$selection" -gt ${#branches[@]} ]]; then
-        echo "Invalid selection"
+    cd "${dirs[$selection]}" || return 1
+}
+
+_worktree_root() {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Error: Not in a git repository"
         return 1
     fi
 
-    cd "${dirs[$((selection - 1))]}" || return 1
+    local main_root
+    main_root=$(_worktree_main_root)
+
+    if [[ "$PWD" == "$main_root" ]]; then
+        return 0
+    fi
+
+    cd "$main_root" || return 1
 }
 
 # Resolve the main repo root (the first worktree, i.e. the non-linked one)
@@ -339,7 +439,7 @@ _worktree_ensure_gitignore() {
 # List existing worktree directory names for completions
 _worktree_names() {
     local repo_root
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return
+    repo_root=$(_worktree_main_root 2>/dev/null) || return
     local worktrees_dir="${repo_root}/.worktrees"
     if [[ -d "$worktrees_dir" ]]; then
         for dir in "$worktrees_dir"/*/; do
@@ -354,7 +454,7 @@ if [[ -n "$BASH_VERSION" ]]; then
         local cur prev commands
         cur="${COMP_WORDS[COMP_CWORD]}"
         prev="${COMP_WORDS[COMP_CWORD-1]}"
-        commands="list add resume remove"
+        commands="list add resume remove root"
 
         case "$prev" in
             worktree)
@@ -377,6 +477,7 @@ if [[ -n "$ZSH_VERSION" ]]; then
             'add:Add a new worktree'
             'resume:Switch to an existing worktree'
             'remove:Remove a worktree'
+            'root:cd to the main repo root'
         )
 
         _arguments '1:command:->cmds' '*:arg:->args'
