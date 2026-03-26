@@ -4,23 +4,22 @@ A shell tool to manage Git worktrees within your repository. Worktrees are creat
 
 ## Installation
 
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url> ~/.local/share/worktree-manager
-   cd ~/.local/share/worktree-manager
-   ```
+```bash
+curl -fsSL https://raw.githubusercontent.com/peterargue/worktree/main/install.sh | sh
+```
 
-2. **Run the install script**:
-   ```bash
-   ./install.sh
-   ```
+or install from source
 
-   This adds a `source` line to your shell RC file (`~/.bashrc` or `~/.zshrc`).
+```bash
+git clone https://github.com/peterargue/worktree.git ~/.local/share/worktree-manager
+~/.local/share/worktree-manager/setup.sh
+```
 
-3. **Reload your shell**:
-   ```bash
-   source ~/.zshrc  # or ~/.bashrc
-   ```
+### Reload your shell
+
+```bash
+source ~/.zshrc  # or ~/.bashrc
+```
 
 ## Usage
 
