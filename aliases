@@ -200,38 +200,99 @@ _worktree_resume() {
     cd "${dirs[$((selection - 1))]}" || return 1
 }
 
+# Resolve the main repo root (the first worktree, i.e. the non-linked one)
+_worktree_main_root() {
+    git worktree list --porcelain | head -1 | sed 's/^worktree //'
+}
+
+# Detect if the current directory is inside a .worktrees/ worktree.
+# If so, prints the worktree directory name. Returns 1 if not in a worktree.
+_worktree_current() {
+    local toplevel
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    local main_root
+    main_root=$(_worktree_main_root)
+
+    # If we're in the main repo, not a worktree
+    [[ "$toplevel" == "$main_root" ]] && return 1
+
+    # Check if this worktree lives under .worktrees/
+    case "$toplevel" in
+        "${main_root}/.worktrees/"*)
+            basename "$toplevel"
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 _worktree_remove() {
     local force=false
+    local approve=false
     local branch_name=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --force) force=true; shift ;;
+            -a|--approve) approve=true; shift ;;
             *)       branch_name="$1"; shift ;;
         esac
     done
-
-    if [[ -z "$branch_name" ]]; then
-        echo "Usage: worktree remove <branch-name> [--force]"
-        return 1
-    fi
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "Error: Not in a git repository"
         return 1
     fi
 
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel)
+    local main_root
+    main_root=$(_worktree_main_root)
+
+    # If no branch specified, try to infer from current worktree
+    if [[ -z "$branch_name" ]]; then
+        local current_wt
+        current_wt=$(_worktree_current)
+        if [[ -n "$current_wt" ]]; then
+            branch_name="$current_wt"
+            echo "Detected current worktree: $branch_name"
+        else
+            echo "Usage: worktree remove [--force] [<branch-name>]"
+            echo "  (omit branch name when inside a worktree to remove the current one)"
+            return 1
+        fi
+    fi
+
     local dir_name
     dir_name=$(_worktree_sanitize_dirname "$branch_name")
-    local worktree_dir="${repo_root}/.worktrees/${dir_name}"
+    local worktree_dir="${main_root}/.worktrees/${dir_name}"
 
     # Check if worktree exists
     if [[ ! -d "$worktree_dir" ]]; then
         echo "Worktree not found: $worktree_dir"
         return 1
+    fi
+
+    # Confirm removal
+    if [[ "$approve" != true ]]; then
+        local will_delete_branch=""
+        if git branch --merged | grep -q "^\s*${branch_name}$"; then
+            will_delete_branch=" and branch '${branch_name}' (already merged)"
+        fi
+        echo "Remove worktree '${dir_name}'${will_delete_branch}?"
+        echo -n "Continue? [y/N] "
+        read -r confirm
+        if [[ ! "$confirm" =~ ^[yY]([eE][sSpPaA])?$ ]]; then
+            echo "Aborted"
+            return 0
+        fi
+    fi
+
+    # If we're inside the worktree being removed, cd to main root first
+    local current_wt
+    current_wt=$(_worktree_current)
+    if [[ "$current_wt" == "$dir_name" ]]; then
+        echo "Currently in this worktree, switching to main repo..."
+        cd "$main_root" || return 1
     fi
 
     # Remove the worktree
