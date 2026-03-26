@@ -204,10 +204,20 @@ _worktree_add() {
 
     echo "Worktree created at: $worktree_dir"
 
-    # Copy .claude directory if it exists
+    # Copy .claude directory if it doesn't already exist, then sync config files
     if [[ -d "${repo_root}/.claude" ]]; then
-        cp -r "${repo_root}/.claude" "${worktree_dir}/.claude"
-        echo "Copied .claude directory into worktree"
+        if [[ ! -d "${worktree_dir}/.claude" ]]; then
+            cp -r "${repo_root}/.claude" "${worktree_dir}/.claude"
+            echo "Copied .claude directory into worktree"
+        else
+            # Sync key config files into existing .claude dir
+            for f in CLAUDE.md settings.local.json; do
+                if [[ -f "${repo_root}/.claude/${f}" ]]; then
+                    cp "${repo_root}/.claude/${f}" "${worktree_dir}/.claude/${f}"
+                fi
+            done
+            echo "Updated .claude/CLAUDE.md and settings.local.json"
+        fi
     fi
 
     cd "$worktree_dir" || return 1
