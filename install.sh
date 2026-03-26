@@ -10,11 +10,11 @@ if [ ! -f "${RC_FILE}" ]; then
 fi
 
 if grep -q "${ALIASES}" "${RC_FILE}"; then
-    echo "Aliases already installed in ${RC_FILE}"
+    echo "worktree already installed in ${RC_FILE}"
     exit 0
 fi
 
 echo "" >> ${RC_FILE}
-echo "# Enable worktree aliases" >> ${RC_FILE}
+echo "# Enable worktree command" >> ${RC_FILE}
 echo "[ -f ${ALIASES} ] && source ${ALIASES}" >> ${RC_FILE}
-echo "Aliases installed in ${RC_FILE}"
+echo "worktree command installed in ${RC_FILE}"

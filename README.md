@@ -1,21 +1,13 @@
-# Git Worktree Aliases
+# Git Worktree Manager
 
-A collection of shell aliases to simplify working with Git worktrees. These aliases provide convenient commands for creating, managing, and removing Git worktrees with automatic organization and branch handling.
-
-## Features
-
-- **Automatic worktree organization**: Worktrees are stored in a configurable base directory organized by repository
-- **Smart branch detection**: Automatically detects if a branch exists locally or remotely
-- **Default branch fallback**: Creates new branches from the repository's default branch when needed
-- **Configurable editor integration**: Automatically opens new worktrees in your preferred editor
-- **Safe removal**: Includes confirmation prompts and branch cleanup options
+A shell tool to manage Git worktrees within your repository. Worktrees are created under `.worktrees/` in the repo root, and the `.claude` directory is automatically copied into each new worktree.
 
 ## Installation
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url> ~/.git-worktree-aliases
-   cd ~/.git-worktree-aliases
+   git clone <repository-url> ~/.local/share/worktree-manager
+   cd ~/.local/share/worktree-manager
    ```
 
 2. **Run the install script**:
@@ -23,155 +15,82 @@ A collection of shell aliases to simplify working with Git worktrees. These alia
    ./install.sh
    ```
 
-   The install script will:
-   - Detect your shell (bash, zsh, etc.)
-   - Add the aliases to your shell RC file (e.g., `~/.bashrc`, `~/.zshrc`)
-   - Source the aliases automatically on shell startup
+   This adds a `source` line to your shell RC file (`~/.bashrc` or `~/.zshrc`).
 
-3. **Reload your shell** or restart your terminal:
+3. **Reload your shell**:
    ```bash
    source ~/.zshrc  # or ~/.bashrc
    ```
 
 ## Usage
 
-### Creating Worktrees
+### `worktree add <branch>`
 
-**Add a new worktree for a new or existing branch**:
+Creates a new worktree at `.worktrees/<branch>` and `cd`s into it.
+
 ```bash
-wt-add feature-branch
+worktree add feature-login
 ```
 
-The `wt-add` command will:
-- Check if the branch exists locally or remotely
-- Create the worktree in `{WORKTREE_DEV_DIR}/{org}/{repo}-worktrees/{branch-name}`
-- Handle branch creation from the default branch if needed
-- Automatically open the new worktree in your configured editor
+- If the branch exists locally or on the remote, it checks it out
+- If the branch doesn't exist, it creates one from the default branch (main/master)
+- Copies the `.claude/` directory from the main repo into the worktree
+- Ensures `.worktrees/` is listed in `.gitignore`
+- If the worktree already exists, just `cd`s into it
 
-**Creating worktrees from specific branches, tags, or commits**:
+Branch names are sanitized for directory names — characters like `/`, `.`, `@` are replaced with `-`. For example, `feature/login.v2` becomes `.worktrees/feature-login-v2`.
 
-For more control over the base of your new branch, the recommended approach is to first create the branch locally from your desired base, then create the worktree:
+To create a worktree from a specific base (tag, commit, or another branch), create the branch first:
 
 ```bash
-# Create a branch from a specific branch
-git checkout -b sub-feature-a feature-branch
-
-# Create a branch from a specific tag
-git checkout -b release-branch v1.2.0
-
-# Create a branch from a specific commit
-git checkout -b hotfix-branch abc1234
-
-# Then create the worktree from the existing local branch
-wt-add sub-feature-a
+git checkout -b hotfix-branch v1.2.0
+worktree add hotfix-branch
 ```
 
-This approach gives you full control over the branch's base while still leveraging the worktree organization features.
+### `worktree list`
 
-### Listing Worktrees
+Lists all worktrees (excluding the main repo), showing branch name and path.
 
-**View all current worktrees**:
 ```bash
-wt-list
+worktree list
 ```
 
-Shows a formatted list of all worktrees with their branch names and paths.
+### `worktree resume [<branch>]`
 
-### Removing Worktrees
+Switch to an existing worktree. With a branch name, `cd`s directly into it. Without arguments, shows a numbered list to pick from.
 
-**Remove a worktree**:
 ```bash
-wt-rm feature-branch
+worktree resume feature-login   # cd directly
+worktree resume                 # pick from a list
 ```
 
-The `wt-rm` command will:
-- Remove the worktree directory
-- Optionally delete the associated branch (with confirmation)
-- Handle worktrees that may be in different locations
+### `worktree remove [--force] <branch>`
 
-## Configuration
-
-### Worktree Base Directory
-
-The base directory for worktrees is configurable by setting the `WORKTREE_DEV_DIR` variable at the top of the `aliases` file:
+Removes a worktree. If the branch has been merged, the branch is also deleted.
 
 ```bash
-WORKTREE_DEV_DIR="$HOME/dev"  # Default location
+worktree remove feature-login
 ```
 
-You can change this to any directory you prefer:
-```bash
-WORKTREE_DEV_DIR="$HOME/projects"  # Alternative location
-```
-
-### Editor Configuration
-
-The editor used to open new worktrees is configurable by setting the `EDITOR_CMD` variable:
+Use `--force` to remove even if there are uncommitted changes:
 
 ```bash
-EDITOR_CMD="cursor"  # Default editor
-```
-
-You can change this to any editor command you prefer:
-```bash
-EDITOR_CMD="code"  # Visual Studio Code
-EDITOR_CMD="vim"   # Vim
-EDITOR_CMD="emacs" # Emacs
-EDITOR_CMD="subl"  # Sublime Text
+worktree remove --force feature-login
 ```
 
 ## Directory Structure
 
-Worktrees are organized by repository under the configured base directory:
-
 ```
-$WORKTREE_DEV_DIR/
-├── organization/
-│   ├── repo-worktrees/
-│   │   ├── feature-branch/
-│   │   ├── bugfix-123/
-│   │   └── hotfix-release/
-│   └── another-repo-worktrees/
-│       ├── main-feature/
-│       └── experimental/
-└── another-org/
-    └── some-repo-worktrees/
-        ├── develop/
-        └── release-candidate/
+your-repo/
+├── .worktrees/          # ignored by git
+│   ├── feature-login/
+│   ├── bugfix-123/
+│   └── hotfix-release/
+├── .gitignore           # .worktrees/ added automatically
+└── ...
 ```
 
 ## Requirements
 
 - Git 2.5+ (for worktree support)
-- Bash or Zsh shell
-- Your preferred editor (optional, for automatic opening)
-
-## Troubleshooting
-
-**Aliases not working after installation**:
-- Ensure your shell RC file was updated: `grep -n "aliases" ~/.zshrc`
-- Reload your shell: `source ~/.zshrc`
-- Check if the aliases file exists: `ls -la ~/.git-worktree-aliases/aliases`
-
-**Worktree creation fails**:
-- Ensure you're in a Git repository
-- Check that the remote origin is properly configured
-- Verify you have the necessary permissions
-- Ensure the `WORKTREE_DEV_DIR` directory exists and is writable
-
-**Editor not opening automatically**:
-- Ensure your configured editor is installed and in your PATH
-- The editor command should be available in your terminal
-- Check that the `EDITOR_CMD` variable is set correctly in the `aliases` file
-
-## Uninstallation
-
-To remove the aliases:
-
-1. Edit your shell RC file (`~/.zshrc` or `~/.bashrc`)
-2. Remove the line: `[ -f ~/.git-worktree-aliases/aliases ] && source ~/.git-worktree-aliases/aliases`
-3. Reload your shell
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
+- Bash or Zsh
