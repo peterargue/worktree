@@ -274,3 +274,66 @@ _worktree_ensure_gitignore() {
         echo "Added .worktrees/ to .gitignore"
     fi
 }
+
+# List existing worktree directory names for completions
+_worktree_names() {
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return
+    local worktrees_dir="${repo_root}/.worktrees"
+    if [[ -d "$worktrees_dir" ]]; then
+        for dir in "$worktrees_dir"/*/; do
+            [[ -d "$dir" ]] && basename "$dir"
+        done
+    fi
+}
+
+# Bash completion
+if [[ -n "$BASH_VERSION" ]]; then
+    _worktree_completions() {
+        local cur prev commands
+        cur="${COMP_WORDS[COMP_CWORD]}"
+        prev="${COMP_WORDS[COMP_CWORD-1]}"
+        commands="list add resume remove"
+
+        case "$prev" in
+            worktree)
+                COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+                ;;
+            resume|remove)
+                COMPREPLY=($(compgen -W "$(_worktree_names)" -- "$cur"))
+                ;;
+        esac
+    }
+    complete -F _worktree_completions worktree
+fi
+
+# Zsh completion
+if [[ -n "$ZSH_VERSION" ]]; then
+    _worktree_completions() {
+        local -a subcmds
+        subcmds=(
+            'list:List all worktrees'
+            'add:Add a new worktree'
+            'resume:Switch to an existing worktree'
+            'remove:Remove a worktree'
+        )
+
+        _arguments '1:command:->cmds' '*:arg:->args'
+
+        case "$state" in
+            cmds)
+                _describe 'command' subcmds
+                ;;
+            args)
+                case "${words[2]}" in
+                    resume|remove)
+                        local -a names
+                        names=($(_worktree_names))
+                        _describe 'worktree' names
+                        ;;
+                esac
+                ;;
+        esac
+    }
+    compdef _worktree_completions worktree
+fi
